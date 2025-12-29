@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Tareas Python</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #1a73e8;
+        }
+
+        input,
+        button,
+        textarea {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            box-sizing: border-box;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #1557b0;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+
+        .btn-danger {
+            background-color: #dc3545;
+        }
+
+        .btn-warning {
+            background-color: #ffc107;
+            color: black;
+        }
+
+        .oculto {
+            display: none;
+        }
+
+        .tarea-item {
+            background: #fff;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .acciones {
+            display: flex;
+            gap: 5px;
+        }
+
+        .acciones button {
+            width: auto;
+            padding: 5px 12px;
+            font-size: 0.85rem;
+            margin-top: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="login-screen" class="card">
+        <h2>🔐 Iniciar Sesión</h2>
+        <input type="text" id="username" placeholder="Usuario">
+        <input type="password" id="password" placeholder="Contraseña">
+        <button onclick="hacerLogin()">Entrar</button>
+        <p id="mensaje-login" style="color: red; text-align: center;"></p>
+    </div>
+
+    <div id="app-screen" class="card oculto">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Mis Tareas</h2>
+            <button onclick="cerrarSesion()" class="btn-secondary" style="width: auto;">Salir</button>
+        </div>
+
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <h3 id="titulo-formulario" style="margin-top:0">Nueva Tarea</h3>
+            <input id="input-titulo" placeholder="Título de la tarea">
+            <input id="input-desc" placeholder="Descripción (Opcional)">
+
+            <div style="display: flex; gap: 10px;">
+                <button onclick="guardarTarea()" id="btn-guardar">Crear Tarea</button>
+                <button onclick="cancelarEdicion()" id="btn-cancelar" class="btn-secondary oculto">Cancelar</button>
+            </div>
+        </div>
+
+        <div id="lista-tareas"></div>
+    </div>
+
+    <script>
+        const API_URL = "http://127.0.0.1:8000";
+        let token = localStorage.getItem("token_accesible");
+
+        // Variables para controlar la edición
+        let modoEdicion = false;
+        let tituloOriginalEditando = "";
+
+        if (token) mostrarApp();
+
+        // --- AUTENTICACIÓN ---
+        async function hacerLogin() {
+            const user = document.getElementById("username").value;
+            const pass = document.getElementById("password").value;
+            const datos = new URLSearchParams({ username: user, password: pass });
+
+            try {
+                const res = await fetch(`${API_URL}/token`, {
+                    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: datos
+                });
+                if (!res.ok) throw new Error("Datos incorrectos");
+                const json = await res.json();
+                token = json.access_token;
+                localStorage.setItem("token_accesible", token);
+                mostrarApp();
+            } catch (e) { document.getElementById("mensaje-login").innerText = e.message; }
+        }
+
+        // --- GESTIÓN DE TAREAS ---
+
+        // 1. CARGAR
+        async function cargarTareas() {
+            const res = await fetch(`${API_URL}/tareas`, { headers: { "Authorization": `Bearer ${token}` } });
+            const tareas = await res.json();
+            const divLista = document.getElementById("lista-tareas");
+            divLista.innerHTML = "";
+
+            tareas.forEach(t => {
+                const completadaStyle = t.completada ? "text-decoration: line-through; color: gray;" : "";
+                const item = document.createElement("div");
+                item.className = "tarea-item";
+                item.innerHTML = `
+                    <span style="${completadaStyle}">
+                        <strong>${t.titulo}</strong><br>
+                        <small>${t.descripcion || ""}</small>
+                    </span>
+                    <div class="acciones">
+                        <button class="btn-warning" onclick="iniciarEdicion('${t.titulo}', '${t.descripcion || ''}')">Editar</button>
+                        <button class="btn-danger" onclick="borrarTarea('${t.titulo}')">Borrar</button>
+                    </div>
+                `;
+                divLista.appendChild(item);
+            });
+        }
+
+        // 2. GUARDAR (Sirve para CREAR y EDITAR)
+        async function guardarTarea() {
+            const titulo = document.getElementById("input-titulo").value;
+            const desc = document.getElementById("input-desc").value;
+
+            if (!titulo) return alert("El título es obligatorio");
+
+            let url, metodo, cuerpo;
+
+            if (modoEdicion) {
+                // MODO EDITAR (PUT)
+                // Nota: Usamos tituloOriginalEditando en la URL para identificar cuál cambiar
+                url = `${API_URL}/tareas/${tituloOriginalEditando}`;
+                metodo = "PUT";
+                cuerpo = { titulo: titulo, descripcion: desc }; // Podemos cambiar el título también
+            } else {
+                // MODO CREAR (POST)
+                url = `${API_URL}/tareas`;
+                metodo = "POST";
+                cuerpo = { titulo: titulo, descripcion: desc };
+            }
+
+            const res = await fetch(url, {
+                method: metodo,
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(cuerpo)
+            });
+
+            if (res.ok) {
+                cancelarEdicion(); // Limpia el formulario
+                cargarTareas();    // Recarga la lista
+            } else {
+                const error = await res.json();
+                alert("Error: " + error.detail);
+            }
+        }
+
+        // 3. BORRAR
+        async function borrarTarea(titulo) {
+            if (!confirm("¿Borrar tarea?")) return;
+            await fetch(`${API_URL}/tareas/eliminar?titulo=${titulo}`, {
+                method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
+            });
+            cargarTareas();
+        }
+
+        // --- FUNCIONES DE LA INTERFAZ (UI) ---
+
+        function iniciarEdicion(titulo, descripcion) {
+            modoEdicion = true;
+            tituloOriginalEditando = titulo; // Guardamos el título viejo para saber a quién hacer el UPDATE
+
+            // Rellenamos el formulario con los datos existentes
+            document.getElementById("input-titulo").value = titulo;
+            document.getElementById("input-desc").value = descripcion;
+
+            // Cambiamos visualmente el botón
+            document.getElementById("titulo-formulario").innerText = "Editar Tarea";
+            document.getElementById("btn-guardar").innerText = "Actualizar Cambios";
+            document.getElementById("btn-guardar").className = "btn-warning";
+            document.getElementById("btn-cancelar").classList.remove("oculto");
+        }
+
+        function cancelarEdicion() {
+            modoEdicion = false;
+            tituloOriginalEditando = "";
+            document.getElementById("input-titulo").value = "";
+            document.getElementById("input-desc").value = "";
+
+            // Restauramos el formulario al modo "Crear"
+            document.getElementById("titulo-formulario").innerText = "Nueva Tarea";
+            document.getElementById("btn-guardar").innerText = "Crear Tarea";
+            document.getElementById("btn-guardar").className = ""; // Quitar clase warning
+            document.getElementById("btn-cancelar").classList.add("oculto");
+        }
+
+        function mostrarApp() {
+            document.getElementById("login-screen").classList.add("oculto");
+            document.getElementById("app-screen").classList.remove("oculto");
+            cargarTareas();
+        }
+
+        function cerrarSesion() {
+            localStorage.removeItem("token_accesible");
+            location.reload();
+        }
+    </script>
+</body>
+
+</html>

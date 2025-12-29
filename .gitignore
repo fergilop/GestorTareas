@@ -1,0 +1,13 @@
+# --- .gitignore ---
+# Ignorar carpetas de entornos virtuales
+venv/
+__pycache__/
+
+# Ignorar configuración del editor
+.vscode/
+
+# ¡IMPORTANTE! Ignorar secretos
+.env
+
+# Ignorar archivos temporales
+*.pyc
