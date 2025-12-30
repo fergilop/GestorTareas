@@ -1,3 +1,6 @@
+import os 
+from fastapi import Query
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
@@ -40,12 +43,23 @@ async def obtener_usuario_actual(token: str = Depends(oauth2_scheme)):
 
 # --- RUTAS ---
 @router.post("/registrar")
-async def registrar_usuario(usuario: UsuarioRegistro):
+async def registrar_usuario(usuario: UsuarioRegistro, admin_key: str = Query(..., description="Clave maestra para registrarse")):
+    
+    # 1. Recuperar la clave secreta del entorno
+    secret_on_server = os.getenv("REGISTRATION_KEY")
+    
+    # 2. Comprobar si coincide
+    if secret_on_server and admin_key != secret_on_server:
+        raise HTTPException(status_code=403, detail="No tienes permiso para registrar usuarios. Clave incorrecta.")
+    
+    # 3. Si no hay clave configurada en el servidor, o si coincide, procedemos
     if coleccion_usuarios.find_one({"username": usuario.username}):
         raise HTTPException(status_code=400, detail="Usuario ya existe")
+    
     hashed_password = get_password_hash(usuario.password)
     coleccion_usuarios.insert_one({"username": usuario.username, "password": hashed_password})
-    return {"mensaje": "Usuario creado"}
+    
+    return {"mensaje": "Usuario creado con éxito"}
 
 @router.post("/token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
