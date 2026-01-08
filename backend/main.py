@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importamos los routers que acabamos de crear
-from routers import auth, tareas
+from routers import auth, tareas, listas
 
 app = FastAPI(title="Gestor de Tareas Modular")
 
@@ -18,3 +18,4 @@ app.add_middleware(
 # AQUI OCURRE LA MAGIA: Unimos las piezas
 app.include_router(auth.router)
 app.include_router(tareas.router)
+app.include_router(listas.router)

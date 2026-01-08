@@ -21,3 +21,4 @@ db = cliente[MONGO_DB_NAME]
 # Exportamos las colecciones para usarlas en otros archivos
 coleccion_tareas = db["tareas"]
 coleccion_usuarios = db["usuarios"]
+coleccion_listas = db["listas_compra"]

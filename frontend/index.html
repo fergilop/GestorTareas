@@ -106,27 +106,61 @@
 
     <div id="app-screen" class="card oculto">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h2>Mis Tareas</h2>
-            <button onclick="cerrarSesion()" class="btn-secondary" style="width: auto;">Salir</button>
-        </div>
-
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 id="titulo-formulario" style="margin-top:0">Nueva Tarea</h3>
-            <input id="input-titulo" placeholder="Título de la tarea">
-            <input id="input-desc" placeholder="Descripción (Opcional)">
-
             <div style="display: flex; gap: 10px;">
-                <button onclick="guardarTarea()" id="btn-guardar">Crear Tarea</button>
-                <button onclick="cancelarEdicion()" id="btn-cancelar" class="btn-secondary oculto">Cancelar</button>
+                <button onclick="mostrarPestaña('tareas')" id="tab-tareas" class="btn-secondary">Mis Tareas</button>
+                <button onclick="mostrarPestaña('listas')" id="tab-listas" class="btn-secondary">Listas de
+                    Compra</button>
             </div>
+            <button onclick="cerrarSesion()" class="btn-danger" style="width: auto;">Salir</button>
         </div>
 
-        <div id="lista-tareas"></div>
+        <div id="vista-tareas">
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 id="titulo-formulario" style="margin-top:0">Nueva Tarea</h3>
+                <input id="input-titulo" placeholder="Título de la tarea">
+                <input id="input-desc" placeholder="Descripción (Opcional)">
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="guardarTarea()" id="btn-guardar">Crear Tarea</button>
+                    <button onclick="cancelarEdicion()" id="btn-cancelar" class="btn-secondary oculto">Cancelar</button>
+                </div>
+            </div>
+            <div id="lista-tareas"></div>
+        </div>
+
+        <div id="vista-listas" class="oculto">
+            <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top:0; color: #0d47a1;">Nueva Lista de Compra</h3>
+
+                <input id="lista-titulo" placeholder="Nombre (ej: Mercadona Semanal)" style="font-weight: bold;">
+
+                <div id="items-container" style="margin-top: 15px; border-left: 3px solid #2196f3; padding-left: 10px;">
+                    <p style="margin: 5px 0; font-size: 0.9em; color: #666;">Productos:</p>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button onclick="agregarInputProducto()" class="btn-secondary" style="background-color: #2196f3;">+
+                        Añadir Producto</button>
+                    <button onclick="guardarListaCompra()" style="background-color: #0d47a1;">Guardar Lista
+                        Completa</button>
+                </div>
+            </div>
+
+            <div id="contenedor-listas"></div>
+        </div>
     </div>
 
     <script>
-        //const API_URL = "http://127.0.0.1:8000";
-        const API_URL = "https://gestortareas-test.onrender.com";
+        // Detecta si es localhost, IP local, o si estás abriendo el archivo directamente (file:)
+        const esLocal = window.location.hostname === '127.0.0.1' ||
+            window.location.hostname === 'localhost' ||
+            window.location.protocol === 'file:';
+
+        const API_URL = esLocal
+            ? "http://127.0.0.1:8000"                  // Backend Local
+            : "https://gestortareas-test.onrender.com"; // Backend Nube (Render)
+
+        console.log("Conectando a:", API_URL); // Para que veas en la consola (F12) cuál eligió
+
         let token = localStorage.getItem("token_accesible");
 
         // Variables para controlar la edición
@@ -262,7 +296,133 @@
         function mostrarApp() {
             document.getElementById("login-screen").classList.add("oculto");
             document.getElementById("app-screen").classList.remove("oculto");
-            cargarTareas();
+            mostrarPestaña('tareas');
+        }
+
+        // --- LOGICA DE PESTAÑAS ---
+        function mostrarPestaña(tab) {
+            document.getElementById("vista-tareas").classList.add("oculto");
+            document.getElementById("vista-listas").classList.add("oculto");
+
+            // Quitamos estilo activo a botones
+            document.getElementById("tab-tareas").style.backgroundColor = "#6c757d";
+            document.getElementById("tab-listas").style.backgroundColor = "#6c757d";
+
+            if (tab === 'tareas') {
+                document.getElementById("vista-tareas").classList.remove("oculto");
+                document.getElementById("tab-tareas").style.backgroundColor = "#1a73e8";
+                cargarTareas();
+            } else {
+                document.getElementById("vista-listas").classList.remove("oculto");
+                document.getElementById("tab-listas").style.backgroundColor = "#1a73e8";
+                cargarListas();
+            }
+        }
+
+        // --- LOGICA DE LISTAS DE COMPRA ---
+
+        // 1. Añadir una fila de inputs (Producto + Cantidad) en el formulario
+        function agregarInputProducto() {
+            const container = document.getElementById("items-container");
+            const div = document.createElement("div");
+            div.style.display = "flex";
+            div.style.gap = "10px";
+            div.style.marginBottom = "5px";
+
+            div.innerHTML = `
+                <input class="item-nombre" placeholder="Producto (ej: Leche)" style="margin-top:0">
+                <input type="number" class="item-cant" placeholder="Cant." value="1" style="width: 80px; margin-top:0">
+                <button onclick="this.parentElement.remove()" style="background: #dc3545; width: auto; margin-top:0">X</button>
+            `;
+            container.appendChild(div);
+        }
+
+        // 2. Guardar la lista (Recorrer los inputs y montar el JSON)
+        async function guardarListaCompra() {
+            const titulo = document.getElementById("lista-titulo").value;
+            if (!titulo) return alert("Ponle un nombre a la lista");
+
+            // Recopilamos todos los items del DOM
+            const nombres = document.querySelectorAll(".item-nombre");
+            const cantidades = document.querySelectorAll(".item-cant");
+            const items = [];
+
+            // Recorremos los inputs que hay en pantalla
+            for (let i = 0; i < nombres.length; i++) {
+                if (nombres[i].value) {
+                    items.push({
+                        producto: nombres[i].value,
+                        cantidad: parseInt(cantidades[i].value),
+                        comprado: false
+                    });
+                }
+            }
+
+            if (items.length === 0) return alert("Añade al menos un producto");
+
+            const payload = {
+                titulo: titulo,
+                items: items
+            };
+
+            const res = await fetch(`${API_URL}/listas`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                alert("Lista guardada!");
+                document.getElementById("lista-titulo").value = "";
+                document.getElementById("items-container").innerHTML = '<p style="margin: 5px 0; font-size: 0.9em; color: #666;">Productos:</p>';
+                agregarInputProducto(); // Añadir uno vacío por defecto
+                cargarListas();
+            } else {
+                alert("Error al guardar lista");
+            }
+        }
+
+        // 3. Cargar y Pintar las listas
+        async function cargarListas() {
+            const res = await fetch(`${API_URL}/listas`, { headers: { "Authorization": `Bearer ${token}` } });
+            const listas = await res.json();
+            const container = document.getElementById("contenedor-listas");
+            container.innerHTML = "";
+
+            listas.forEach(lista => {
+                let htmlItems = "";
+                lista.items.forEach(item => {
+                    htmlItems += `<li>${item.cantidad}x ${item.producto}</li>`;
+                });
+
+                const card = document.createElement("div");
+                card.className = "card";
+                card.style.borderLeft = "5px solid #1a73e8"; // Decoración visual
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                        <h3>🛒 ${lista.titulo}</h3>
+                        <button onclick="borrarLista('${lista.titulo}')" class="btn-danger" style="width:auto; padding:5px 10px;">Eliminar</button>
+                    </div>
+                    <ul style="padding-left: 20px; color: #555;">${htmlItems}</ul>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // 4. Borrar lista
+        async function borrarLista(titulo) {
+            if (!confirm("¿Seguro que quieres borrar la lista " + titulo + "?")) return;
+
+            const res = await fetch(`${API_URL}/listas?titulo=${titulo}`, {
+                method: "DELETE",
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+
+            if (res.ok) {
+                cargarListas(); // Recargamos para que desaparezca
+            } else {
+                alert("Error al borrar la lista");
+            }
         }
 
         function cerrarSesion() {
