@@ -38,3 +38,21 @@ async def eliminar_lista(titulo: str, usuario: dict = Depends(obtener_usuario_ac
         raise HTTPException(status_code=404, detail="Lista no encontrada")
     
     return {"mensaje": "Lista eliminada"}
+
+# RUTA 3: ACTUALIZAR UNA LISTA COMPLETA
+@router.put("/listas/{titulo_original}")
+async def actualizar_lista(titulo_original: str, lista_nueva: ListaCompra, usuario: dict = Depends(obtener_usuario_actual)):
+    # Buscamos la lista original para asegurar que existe y es del usuario
+    filtro = {"titulo": titulo_original, "usuario": usuario["username"]}
+    
+    # Convertimos los datos nuevos a diccionario
+    datos_nuevos = lista_nueva.dict()
+    datos_nuevos["usuario"] = usuario["username"] # Aseguramos que el dueño sigue siendo el mismo
+
+    # La magia de Mongo: Reemplazamos todo el documento
+    resultado = coleccion_listas.replace_one(filtro, datos_nuevos)
+
+    if resultado.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    
+    return {"mensaje": "Lista actualizada correctamente"}

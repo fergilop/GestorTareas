@@ -91,6 +91,29 @@
             font-size: 0.85rem;
             margin-top: 0;
         }
+
+        /* Estilo para items comprados */
+        .comprado {
+            text-decoration: line-through;
+            color: #888;
+            background-color: #f0f0f0;
+        }
+
+        /* Ajuste para que el checkbox se vea bien */
+        .item-lista {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+
+        /* CORRECCIÓN: Evitar que el checkbox ocupe el 100% del ancho */
+        input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+            padding: 0;
+        }
     </style>
 </head>
 
@@ -150,6 +173,8 @@
     </div>
 
     <script>
+        let nombreListaEditando = null; // Guardará el nombre original si estamos editando
+        let misListas = []; // <--- Aquí guardaremos copia de los datos
         // Detecta si es localhost, IP local, o si estás abriendo el archivo directamente (file:)
         const esLocal = window.location.hostname === '127.0.0.1' ||
             window.location.hostname === 'localhost' ||
@@ -322,16 +347,18 @@
         // --- LOGICA DE LISTAS DE COMPRA ---
 
         // 1. Añadir una fila de inputs (Producto + Cantidad) en el formulario
-        function agregarInputProducto() {
+        // Ahora acepta parámetros opcionales (nombre y cantidad)
+        function agregarInputProducto(nombre = "", cantidad = 1) {
             const container = document.getElementById("items-container");
             const div = document.createElement("div");
             div.style.display = "flex";
             div.style.gap = "10px";
             div.style.marginBottom = "5px";
 
+            // Fíjate en los value="${...}"
             div.innerHTML = `
-                <input class="item-nombre" placeholder="Producto (ej: Leche)" style="margin-top:0">
-                <input type="number" class="item-cant" placeholder="Cant." value="1" style="width: 80px; margin-top:0">
+                <input class="item-nombre" placeholder="Producto" value="${nombre}" style="margin-top:0">
+                <input type="number" class="item-cant" placeholder="Cant." value="${cantidad}" style="width: 80px; margin-top:0">
                 <button onclick="this.parentElement.remove()" style="background: #dc3545; width: auto; margin-top:0">X</button>
             `;
             container.appendChild(div);
@@ -342,12 +369,11 @@
             const titulo = document.getElementById("lista-titulo").value;
             if (!titulo) return alert("Ponle un nombre a la lista");
 
-            // Recopilamos todos los items del DOM
+            // Recopilamos items (igual que antes)
             const nombres = document.querySelectorAll(".item-nombre");
             const cantidades = document.querySelectorAll(".item-cant");
             const items = [];
 
-            // Recorremos los inputs que hay en pantalla
             for (let i = 0; i < nombres.length; i++) {
                 if (nombres[i].value) {
                     items.push({
@@ -357,56 +383,96 @@
                     });
                 }
             }
-
             if (items.length === 0) return alert("Añade al menos un producto");
 
-            const payload = {
-                titulo: titulo,
-                items: items
-            };
+            const payload = { titulo: titulo, items: items };
 
-            const res = await fetch(`${API_URL}/listas`, {
-                method: "POST",
+            let url = `${API_URL}/listas`;
+            let method = "POST";
+
+            // --- CAMBIO CLAVE: SI ESTAMOS EDITANDO ---
+            if (nombreListaEditando) {
+                // Usamos la ruta PUT y añadimos el nombre antiguo a la URL
+                url = `${API_URL}/listas/${nombreListaEditando}`;
+                method = "PUT";
+            }
+            // -----------------------------------------
+
+            const res = await fetch(url, {
+                method: method,
                 headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
 
             if (res.ok) {
-                alert("Lista guardada!");
+                alert(nombreListaEditando ? "Lista actualizada!" : "Lista creada!");
+
+                // Limpieza y Reset
                 document.getElementById("lista-titulo").value = "";
                 document.getElementById("items-container").innerHTML = '<p style="margin: 5px 0; font-size: 0.9em; color: #666;">Productos:</p>';
-                agregarInputProducto(); // Añadir uno vacío por defecto
+                agregarInputProducto();
+
+                // Volvemos al modo normal (Crear)
+                nombreListaEditando = null;
+                const btnGuardar = document.querySelector("button[onclick='guardarListaCompra()']");
+                btnGuardar.innerText = "Guardar Lista Completa";
+                btnGuardar.style.backgroundColor = "#0d47a1";
+
                 cargarListas();
             } else {
-                alert("Error al guardar lista");
+                const errorTexto = await res.text();
+                alert("Error: " + errorTexto);
             }
         }
 
         // 3. Cargar y Pintar las listas
         async function cargarListas() {
-            const res = await fetch(`${API_URL}/listas`, { headers: { "Authorization": `Bearer ${token}` } });
-            const listas = await res.json();
-            const container = document.getElementById("contenedor-listas");
-            container.innerHTML = "";
+            try {
+                const res = await fetch(`${API_URL}/listas`, { headers: { "Authorization": `Bearer ${token}` } });
+                if (!res.ok) throw new Error("Error cargando listas");
 
-            listas.forEach(lista => {
-                let htmlItems = "";
-                lista.items.forEach(item => {
-                    htmlItems += `<li>${item.cantidad}x ${item.producto}</li>`;
+                misListas = await res.json();
+
+                const container = document.getElementById("contenedor-listas");
+                container.innerHTML = "";
+
+                misListas.forEach((lista) => {
+                    let htmlItems = "";
+
+                    lista.items.forEach((item, i) => {
+                        const check = item.comprado ? "checked" : "";
+                        const clase = item.comprado ? "comprado" : "";
+
+                        // Fíjate bien en el </li> al final de este bloque
+                        htmlItems += `
+                            <li class="item-lista ${clase}">
+                                <input type="checkbox" ${check} onchange="cambiarEstadoItem('${lista.titulo}', ${i})">
+                                <span>${item.cantidad}x ${item.producto}</span>
+                            </li>`; // <--- ¡ASEGÚRATE DE QUE ESTE </li> ESTÉ AQUÍ!
+                    });
+
+                    // Preparamos los datos para el botón editar
+                    const itemsJson = JSON.stringify(lista.items).replace(/"/g, "&quot;");
+
+                    const card = document.createElement("div");
+                    card.className = "card";
+                    card.style.borderLeft = "5px solid #1a73e8";
+
+                    card.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <h3 style="margin:0">🛒 ${lista.titulo}</h3>
+                            <div style="display:flex; gap:5px">
+                                <button onclick="editarLista('${lista.titulo}', ${itemsJson})" class="btn-warning" style="width:auto; padding:5px 10px;">✏️</button>
+                                <button onclick="borrarLista('${lista.titulo}')" class="btn-danger" style="width:auto; padding:5px 10px;">🗑️</button>
+                            </div>
+                        </div>
+                        <ul style="padding-left: 0; list-style: none;">${htmlItems}</ul>
+                    `;
+                    container.appendChild(card);
                 });
-
-                const card = document.createElement("div");
-                card.className = "card";
-                card.style.borderLeft = "5px solid #1a73e8"; // Decoración visual
-                card.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center">
-                        <h3>🛒 ${lista.titulo}</h3>
-                        <button onclick="borrarLista('${lista.titulo}')" class="btn-danger" style="width:auto; padding:5px 10px;">Eliminar</button>
-                    </div>
-                    <ul style="padding-left: 20px; color: #555;">${htmlItems}</ul>
-                `;
-                container.appendChild(card);
-            });
+            } catch (error) {
+                console.error(error);
+            }
         }
 
         // 4. Borrar lista
@@ -425,6 +491,58 @@
             }
         }
 
+        // 5. Editar lista
+        function editarLista(titulo, items) {
+            // 1. Cambiar estado a "Modo Edición"
+            nombreListaEditando = titulo;
+            document.getElementById("lista-titulo").value = titulo;
+
+            // Cambiamos el texto del botón para que el usuario sepa que está editando
+            const btnGuardar = document.querySelector("button[onclick='guardarListaCompra()']");
+            btnGuardar.innerText = "Actualizar Lista";
+            btnGuardar.style.backgroundColor = "#ff9800"; // Naranja para indicar cambio
+
+            // 2. Limpiar el formulario actual
+            const container = document.getElementById("items-container");
+            container.innerHTML = '<p style="margin: 5px 0; font-size: 0.9em; color: #666;">Productos:</p>';
+
+            // 3. Rellenar con los productos de la lista seleccionada
+            // (Como 'items' puede llegar como string raro desde el HTML, a veces hay que parsearlo, 
+            // pero lo pasaremos como objeto directo desde cargarListas)
+            items.forEach(item => {
+                agregarInputProducto(item.producto, item.cantidad);
+            });
+
+            // Llevamos al usuario arriba del todo para que vea el formulario
+            document.getElementById("vista-listas").scrollIntoView({ behavior: "smooth" });
+        }
+
+        // 6. Cambiar estado item
+        async function cambiarEstadoItem(tituloLista, indiceItem) {
+            // 1. Buscar la lista en nuestra variable local
+            const lista = misListas.find(l => l.titulo === tituloLista);
+            if (!lista) return;
+
+            // 2. Cambiar el estado (Si era true pasa a false, y viceversa)
+            lista.items[indiceItem].comprado = !lista.items[indiceItem].comprado;
+
+            // 3. Enviar la actualización al servidor (Silenciosamente)
+            // Reutilizamos la misma lógica que en 'guardarListaCompra' pero sin alertas molestas
+            const res = await fetch(`${API_URL}/listas/${tituloLista}`, {
+                method: "PUT",
+                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify(lista) // Enviamos la lista entera con el cambio
+            });
+
+            if (res.ok) {
+                // Solo recargamos para ver el efecto visual (tachado)
+                cargarListas();
+            } else {
+                alert("Error al actualizar estado");
+            }
+        }
+
+        // Cerrar sesión
         function cerrarSesion() {
             localStorage.removeItem("token_accesible");
             location.reload();
