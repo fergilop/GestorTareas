@@ -19,3 +19,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(tareas.router)
 app.include_router(listas.router)
+
+@app.get("/")
+def home():
+    return {"mensaje": "Bienvenido a mi API de Tareas en Docker", "estado": "online"}
